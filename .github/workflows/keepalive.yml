@@ -1,0 +1,21 @@
+# GitHub switches off scheduled workflows after 60 days with no commits.
+# A tiny commit on the 1st of each month keeps the reminders running.
+name: Keep alive
+on:
+  schedule:
+    - cron: "0 6 1 * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  touch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          date -u +%Y-%m-%d > .keepalive
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .keepalive
+          git commit -m "Keep the reminder schedule alive" || exit 0
+          git push

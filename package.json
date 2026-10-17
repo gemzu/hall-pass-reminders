@@ -1,0 +1,16 @@
+{
+  "name": "hall-pass-reminders",
+  "private": true,
+  "type": "module",
+  "description": "Sends Hall Pass class and due-work reminders as web push notifications, run every 15 minutes by GitHub Actions.",
+  "scripts": {
+    "send": "node send.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.10.0",
+    "web-push": "^3.6.7"
+  }
+}

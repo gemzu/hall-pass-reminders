@@ -1,0 +1,4 @@
+node_modules/
+.vapid.json
+*.service-account*.json
+service-account*.json
