@@ -4,6 +4,7 @@
 //   - a class starting in the next 17 minutes (so roughly 10 minutes before, given the schedule)
 //   - work due tomorrow, once, from 8 PM the evening before
 //   - work due within the next 75 minutes, once
+//   - the daily medicine reminder (users/{uid}/meds/daily), at the time the person chose, until they mark it taken, with one nudge an hour later
 // Each reminder is recorded in users/{uid}/sent so it goes out only once, even if runs overlap.
 //
 // Env: FIREBASE_SERVICE_ACCOUNT (the service account JSON), VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY.
@@ -31,6 +32,19 @@ const naive = (s) => { const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec
 const ymd = (ms) => new Date(ms).toISOString().slice(0, 10);
 const t12 = (ms) => { const d = new Date(ms), h = d.getUTCHours(), m = String(d.getUTCMinutes()).padStart(2, "0"); return `${h % 12 || 12}:${m} ${h < 12 ? "am" : "pm"}`; };
 const validTz = (tz) => { try { new Intl.DateTimeFormat("en-US", { timeZone: tz }); return true; } catch { return false; } };
+
+// Medicine: sent once a day, from the chosen time until 2 hours later (a missed run still catches up),
+// and never if today is already marked taken (users/{uid}/medlog/YYYY-MM-DD).
+function medPlan(now, cfg, taken) {
+  if (!cfg || cfg.on !== true || !/^([01]\d|2[0-3]):[0-5]\d$/.test(cfg.time || "") || taken) return [];
+  const mins = Math.round((now.ms - naive(`${now.date}T${cfg.time}`)) / 6e4);
+  if (mins < 0 || mins > 120) return [];
+  const title = String(cfg.msg || "").slice(0, 120) || "خدي الدوا يرنوشتي";
+  // First at the chosen time, then one gentle nudge an hour later if it still isn't marked taken.
+  return mins < 60
+    ? [{ key: `m_${now.date}`, title, body: "Hall Pass · tap Taken when you have", tag: "med" }]
+    : [{ key: `m2_${now.date}`, title, body: "Still not marked as taken", tag: "med" }];
+}
 
 function plan(now, classes, tasks) {
   const out = [];
@@ -63,10 +77,12 @@ async function run() {
   let sent = 0, gone = 0;
   for (const [uid, devices] of byUser) {
     const user = db.collection("users").doc(uid);
-    const [me, cls, tsk] = await Promise.all([user.get(), user.collection("classes").get(), user.collection("tasks").get()]);
+    const [me, cls, tsk, med] = await Promise.all([user.get(), user.collection("classes").get(), user.collection("tasks").get(), user.collection("meds").doc("daily").get()]);
     const tz = me.exists && validTz(me.get("tz")) ? me.get("tz") : "Africa/Cairo";
     const now = localNow(tz);
     const due = plan(now, cls.docs.map((d) => ({ id: d.id, ...d.data() })), tsk.docs.map((d) => ({ id: d.id, ...d.data() })));
+    const taken = (await user.collection("medlog").doc(now.date).get()).exists;
+    due.push(...medPlan(now, med.exists ? med.data() : null, taken));
     for (const n of due) {
       // Claim it first: create() fails if another run already sent this one.
       if (!DRY) { try { await user.collection("sent").doc(n.key).create({ at: admin.firestore.Timestamp.now() }); } catch { continue; } }
